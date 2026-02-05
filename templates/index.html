@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Facial Emotion Recognition</title>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/style.css" />
+
+    <!-- Google Fonts -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body>
+    <div class="container">
+      <header class="page-header">
+        <h1>Facial Emotion Recognition</h1>
+        <p>
+          Capture from your webcam or upload an image, then let the model guess
+          the vibe 😄
+        </p>
+      </header>
+
+      <main class="grid">
+        <!-- Webcam Section -->
+        <section class="card" aria-labelledby="webcam-title">
+          <div class="card-head">
+            <h2 id="webcam-title">Live Webcam</h2>
+            <p class="muted">
+              Allow camera access to preview and capture a frame.
+            </p>
+          </div>
+
+          <div class="media">
+            <video id="webcam" autoplay playsinline muted></video>
+          </div>
+
+          <div class="actions">
+            <button id="captureBtn" class="btn" type="button">
+              Capture & Predict
+            </button>
+            <span id="cameraStatus" class="status muted"
+              >Initializing camera…</span
+            >
+          </div>
+        </section>
+
+        <!-- Upload Section -->
+        <section class="card" aria-labelledby="upload-title">
+          <div class="card-head">
+            <h2 id="upload-title">Upload an Image</h2>
+            <p class="muted">Choose a photo (JPG/PNG) to run a prediction.</p>
+          </div>
+
+          <div class="upload">
+            <label class="file-label" for="fileInput">
+              <span>Choose file</span>
+              <input
+                type="file"
+                id="fileInput"
+                class="file-input"
+                accept="image/*"
+              />
+            </label>
+
+            <div class="preview muted">
+              <span id="fileName">No file selected</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Result Section -->
+        <section class="card result-card" aria-labelledby="result-title">
+          <div class="card-head">
+            <h2 id="result-title">Prediction</h2>
+            <p class="muted">Your result will show up here.</p>
+          </div>
+
+          <div class="result">
+            <p>
+              <strong>Emotion:</strong>
+              <span id="emotion" class="pill">--</span>
+            </p>
+            <p>
+              <strong>Description:</strong>
+              <span id="description">--</span>
+            </p>
+          </div>
+
+          <div class="actions">
+            <span id="loading" class="status muted" hidden
+              >Analyzing image…</span
+            >
+            <span id="error" class="status error" hidden></span>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      // ----------------------------
+      // DOM helpers
+      // ----------------------------
+      const $ = (id) => document.getElementById(id);
+
+      const videoEl = $("webcam");
+      const captureBtn = $("captureBtn");
+      const fileInput = $("fileInput");
+
+      const emotionEl = $("emotion");
+      const descriptionEl = $("description");
+
+      const cameraStatusEl = $("cameraStatus");
+      const loadingEl = $("loading");
+      const errorEl = $("error");
+      const fileNameEl = $("fileName");
+
+      // ----------------------------
+      // UI state
+      // ----------------------------
+      function setLoading(isLoading, text = "Analyzing image…") {
+        loadingEl.textContent = text;
+        loadingEl.hidden = !isLoading;
+        captureBtn.disabled = isLoading;
+        fileInput.disabled = isLoading;
+      }
+
+      function setError(message = "") {
+        if (!message) {
+          errorEl.hidden = true;
+          errorEl.textContent = "";
+          return;
+        }
+        errorEl.hidden = false;
+        errorEl.textContent = message;
+      }
+
+      function setResult({ emotion, description }) {
+        emotionEl.textContent = emotion ?? "--";
+        descriptionEl.textContent = description ?? "--";
+      }
+
+      // ----------------------------
+      // Webcam boot
+      // ----------------------------
+      async function startCamera() {
+        try {
+          cameraStatusEl.textContent = "Requesting camera permission…";
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+          });
+          videoEl.srcObject = stream;
+
+          cameraStatusEl.textContent = "Camera ready ✅";
+          setError("");
+        } catch (err) {
+          console.error("Error accessing webcam:", err);
+          cameraStatusEl.textContent = "Camera unavailable ❌";
+          setError(
+            "Could not access your camera. You can still upload an image.",
+          );
+        }
+      }
+
+      // ----------------------------
+      // Prediction call
+      // ----------------------------
+      async function predictWithFormData(formData) {
+        setLoading(true);
+        setError("");
+
+        try {
+          const response = await fetch("/predict", {
+            method: "POST",
+            body: formData,
+          });
+
+          // If backend returns non-2xx, try to show a helpful message
+          if (!response.ok) {
+            let msg = "Prediction failed. Please try again.";
+            try {
+              const maybeJson = await response.json();
+              if (maybeJson?.error) msg = maybeJson.error;
+            } catch (_) {}
+            throw new Error(msg);
+          }
+
+          const data = await response.json();
+          setResult(data);
+        } catch (e) {
+          console.error(e);
+          setError(e.message || "Something went wrong. Please try again.");
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      // ----------------------------
+      // Capture from webcam
+      // ----------------------------
+      captureBtn.addEventListener("click", async () => {
+        // Guard: if video isn't ready, avoid capturing a 0x0 canvas
+        if (!videoEl.videoWidth || !videoEl.videoHeight) {
+          setError(
+            "Webcam feed isn’t ready yet. Give it a second and try again.",
+          );
+          return;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = videoEl.videoWidth;
+        canvas.height = videoEl.videoHeight;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+
+        const blob = await new Promise((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", 0.95),
+        );
+
+        const formData = new FormData();
+        formData.append("image", blob, "webcam.jpg");
+
+        await predictWithFormData(formData);
+      });
+
+      // ----------------------------
+      // Upload and predict
+      // ----------------------------
+      fileInput.addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        fileNameEl.textContent = file?.name || "No file selected";
+
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append("image", file);
+
+        await predictWithFormData(formData);
+      });
+
+      // Boot
+      startCamera();
+    </script>
+  </body>
+</html>
