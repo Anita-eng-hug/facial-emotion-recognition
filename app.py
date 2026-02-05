@@ -42,20 +42,20 @@ EMOTION_MESSAGES = {
 # Image preprocessing
 
 def prepare_image_for_model(image_path: str) -> np.ndarray:
-    """
-    We convert the image file into the model's expected input tensor.
-
-    Steps:
-    1) Open image and convert to grayscale ("L") to match typical emotion datasets
-    2) Resize to 48x48 (common for FER-style models)
-    3) Convert to NumPy array and scale to [0, 1]
-    4) Add a batch dimension so shape becomes (1, 48, 48) (same as original code)
-    """
+    # 1) Load as grayscale (matches training)
     img = Image.open(image_path).convert("L")
+
+    # 2) Resize to 48x48 (matches training)
     img = img.resize((48, 48))
 
-    arr = np.asarray(img, dtype=np.float32) / 255.0
-    arr = np.expand_dims(arr, axis=0)  # (1, 48, 48)
+    # 3) Convert to float + rescale (matches ImageDataGenerator(rescale=1./255))
+    arr = np.asarray(img, dtype=np.float32) / 255.0   # (48, 48)
+
+    # 4) Add channel dim -> (48, 48, 1)
+    arr = np.expand_dims(arr, axis=-1)
+
+    # 5) Add batch dim -> (1, 48, 48, 1)
+    arr = np.expand_dims(arr, axis=0)
 
     return arr
 
@@ -108,3 +108,4 @@ if __name__ == "__main__":
     # Vercel normally runs via its own entrypoint; this is for our local testing.
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
